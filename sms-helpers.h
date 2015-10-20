@@ -11,7 +11,7 @@ using namespace ns3;
 using std::size_t;
 
 
-class FileSMS : public Object
+class FileSMS
 {
 public:
     FileSMS(unsigned int id, size_t size)
