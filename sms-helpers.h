@@ -3,6 +3,7 @@
 #include "ns3/network-module.h"
 #include "ns3/wifi-module.h"
 #include "ns3/random-variable.h"
+#include "cstdio"
 
 #include <algorithm>
 #include <vector>

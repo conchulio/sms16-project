@@ -3,6 +3,7 @@
 NS_LOG_COMPONENT_DEFINE("SMSProject");
 
 int main(int argc, char* argv[]) {
+    //puts("Hello World");
     LogComponentEnable("SMSProject", LOG_LEVEL_INFO);
 
     NodeContainer c;
