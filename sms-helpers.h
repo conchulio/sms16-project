@@ -2,6 +2,7 @@
 #include "ns3/mobility-module.h"
 #include "ns3/network-module.h"
 #include "ns3/wifi-module.h"
+#include "ns3/internet-module.h"
 #include "ns3/random-variable.h"
 #include "cstdio"
 
@@ -117,6 +118,7 @@ void installWifi(NodeContainer &c, NetDeviceContainer &devices) {
                                  "ControlMode", StringValue(phyMode));
 
     devices = wifi.Install(wifiPhy, wifiMac, c);
+    wifiPhy.EnablePcap ("sms16", devices);
 }
 
 /**
