@@ -1,7 +1,7 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
  * Copyright 2007 University of Washington
- * 
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation;
@@ -70,7 +70,7 @@ SmsEchoServer::DoDispose (void)
   Application::DoDispose ();
 }
 
-void 
+void
 SmsEchoServer::StartApplication (void)
 {
   NS_LOG_FUNCTION (this);
@@ -81,19 +81,19 @@ SmsEchoServer::StartApplication (void)
       m_socket = Socket::CreateSocket (GetNode (), tid);
       InetSocketAddress local = InetSocketAddress (Ipv4Address::GetAny (), m_port);
       m_socket->Bind (local);
-      if (addressUtils::IsMulticast (m_local))
-        {
-          Ptr<UdpSocket> udpSocket = DynamicCast<UdpSocket> (m_socket);
-          if (udpSocket)
-            {
-              // equivalent to setsockopt (MCAST_JOIN_GROUP)
-              udpSocket->MulticastJoinGroup (0, m_local);
-            }
-          else
-            {
-              NS_FATAL_ERROR ("Error: Failed to join multicast group");
-            }
-        }
+      // if (addressUtils::IsMulticast (m_local))
+      //   {
+      //     Ptr<UdpSocket> udpSocket = DynamicCast<UdpSocket> (m_socket);
+      //     if (udpSocket)
+      //       {
+      //         // equivalent to setsockopt (MCAST_JOIN_GROUP)
+      //         udpSocket->MulticastJoinGroup (0, m_local);
+      //       }
+      //     else
+      //       {
+      //         NS_FATAL_ERROR ("Error: Failed to join multicast group");
+      //       }
+      //   }
     }
 
   if (m_socket6 == 0)
@@ -121,24 +121,24 @@ SmsEchoServer::StartApplication (void)
   m_socket6->SetRecvCallback (MakeCallback (&SmsEchoServer::HandleRead, this));
 }
 
-void 
+void
 SmsEchoServer::StopApplication ()
 {
   NS_LOG_FUNCTION (this);
 
-  if (m_socket != 0) 
+  if (m_socket != 0)
     {
       m_socket->Close ();
       m_socket->SetRecvCallback (MakeNullCallback<void, Ptr<Socket> > ());
     }
-  if (m_socket6 != 0) 
+  if (m_socket6 != 0)
     {
       m_socket6->Close ();
       m_socket6->SetRecvCallback (MakeNullCallback<void, Ptr<Socket> > ());
     }
 }
 
-void 
+void
 SmsEchoServer::HandleRead (Ptr<Socket> socket)
 {
   NS_LOG_FUNCTION (this << socket);

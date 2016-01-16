@@ -1,4 +1,5 @@
 #include "sms-helpers.h"
+#include "sms-echo-helper.h"
 #include <iostream>
 
 NS_LOG_COMPONENT_DEFINE("SMSProject");
@@ -29,10 +30,10 @@ int main(int argc, char* argv[]) {
     for (size_t i = 0; i < c.GetN(); i++) {
         std::vector<FileSMS> files = getInitialFileList();
         nodeFileList.push_back(files);
-        std::vector<FileSMS>::const_iterator it;
-        for (it = files.begin(); it != files.end(); ++it) {
+        // std::vector<FileSMS>::const_iterator it;
+        // for (it = files.begin(); it != files.end(); ++it) {
           /* std::cout << "File " << it->getFileId() << " size: " << it->getFileSize() << std::endl; */
-        }
+        // }
         // ...
         // The 'files' vector contains all the FileSMS objects that the node has
         // when the simulation starts. While in this example the information is
@@ -41,10 +42,10 @@ int main(int argc, char* argv[]) {
     }
 
     uint16_t port = 42;
-    SmsEchoServerHelper server (port);
-    ApplicationContainer apps = server.Install(c);
-    apps.Start(Seconds(1.0));
-    apps.Stop(Seconds(10.0));
+    // SmsEchoServerHelper server (port);
+    // ApplicationContainer apps_server = server.Install(c.Get(0));
+    // apps_server.Start(Seconds(1.0));
+    // apps_server.Stop(Seconds(10.0));
     Address serverAddress = Address(Ipv4Address("255.255.255.255"));
 
     uint32_t packetSize = 1024;
@@ -54,7 +55,13 @@ int main(int argc, char* argv[]) {
     client.SetAttribute("MaxPackets", UintegerValue(maxPacketCount));
     client.SetAttribute("Interval", TimeValue(interPacketInterval));
     client.SetAttribute("PacketSize", UintegerValue(packetSize));
-    apps = client.Install(c.Get(1));
+    ApplicationContainer apps = client.Install(c);
+    for (uint32_t i = 0; i < c.GetN(); i++) {
+      SmsEchoClient* smsApp = static_cast<SmsEchoClient*> (&(*(c.Get(i)->GetApplication(0))));
+      // NS_LOG_INFO("Here I am");
+      smsApp->SetFiles (nodeFileList[i]);
+      // NS_LOG_INFO("Still there");
+    }
     apps.Start(Seconds(2.0));
     apps.Stop(Seconds(10.0));
 

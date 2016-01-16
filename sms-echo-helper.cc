@@ -18,66 +18,68 @@
  * Author: Mathieu Lacage <mathieu.lacage@sophia.inria.fr>
  */
 #include "sms-echo-helper.h"
-#include "sms-echo-server.h"
 #include "sms-echo-client.h"
+#include "sms-echo-server.h"
 #include "ns3/uinteger.h"
 #include "ns3/names.h"
 
 namespace ns3 {
 
-SmsEchoServerHelper::SmsEchoServerHelper (uint16_t port)
-{
-  m_factory.SetTypeId (SmsEchoServer::GetTypeId ());
-  SetAttribute ("Port", UintegerValue (port));
-}
+// SmsEchoServerHelper::SmsEchoServerHelper (uint16_t port)
+// {
+//   m_factory.SetTypeId (SmsEchoServer::GetTypeId ());
+//   SetAttribute ("Port", UintegerValue (port));
+// }
+//
+// void
+// SmsEchoServerHelper::SetAttribute (
+//   std::string name,
+//   const AttributeValue &value)
+// {
+//   m_factory.Set (name, value);
+// }
+//
+// ApplicationContainer
+// SmsEchoServerHelper::Install (Ptr<Node> node) const
+// {
+//   return ApplicationContainer (InstallPriv (node));
+// }
+//
+// ApplicationContainer
+// SmsEchoServerHelper::Install (std::string nodeName) const
+// {
+//   Ptr<Node> node = Names::Find<Node> (nodeName);
+//   return ApplicationContainer (InstallPriv (node));
+// }
+//
+// ApplicationContainer
+// SmsEchoServerHelper::Install (NodeContainer c) const
+// {
+//   ApplicationContainer apps;
+//   for (NodeContainer::Iterator i = c.Begin (); i != c.End (); ++i)
+//     {
+//       apps.Add (InstallPriv (*i));
+//     }
+//
+//   return apps;
+// }
+//
+// Ptr<Application>
+// SmsEchoServerHelper::InstallPriv (Ptr<Node> node) const
+// {
+//   Ptr<Application> app = m_factory.Create<SmsEchoServer> ();
+//   node->AddApplication (app);
+//
+//   return app;
+// }
 
-void 
-SmsEchoServerHelper::SetAttribute (
-  std::string name, 
-  const AttributeValue &value)
-{
-  m_factory.Set (name, value);
-}
-
-ApplicationContainer
-SmsEchoServerHelper::Install (Ptr<Node> node) const
-{
-  return ApplicationContainer (InstallPriv (node));
-}
-
-ApplicationContainer
-SmsEchoServerHelper::Install (std::string nodeName) const
-{
-  Ptr<Node> node = Names::Find<Node> (nodeName);
-  return ApplicationContainer (InstallPriv (node));
-}
-
-ApplicationContainer
-SmsEchoServerHelper::Install (NodeContainer c) const
-{
-  ApplicationContainer apps;
-  for (NodeContainer::Iterator i = c.Begin (); i != c.End (); ++i)
-    {
-      apps.Add (InstallPriv (*i));
-    }
-
-  return apps;
-}
-
-Ptr<Application>
-SmsEchoServerHelper::InstallPriv (Ptr<Node> node) const
-{
-  Ptr<Application> app = m_factory.Create<SmsEchoServer> ();
-  node->AddApplication (app);
-
-  return app;
-}
-
+// We use this constructor
 SmsEchoClientHelper::SmsEchoClientHelper (Address address, uint16_t port)
 {
   m_factory.SetTypeId (SmsEchoClient::GetTypeId ());
   SetAttribute ("RemoteAddress", AddressValue (address));
   SetAttribute ("RemotePort", UintegerValue (port));
+  this->nodeFileList = nodeFileList;
 }
 
 SmsEchoClientHelper::SmsEchoClientHelper (Ipv4Address address, uint16_t port)
@@ -94,9 +96,9 @@ SmsEchoClientHelper::SmsEchoClientHelper (Ipv6Address address, uint16_t port)
   SetAttribute ("RemotePort", UintegerValue (port));
 }
 
-void 
+void
 SmsEchoClientHelper::SetAttribute (
-  std::string name, 
+  std::string name,
   const AttributeValue &value)
 {
   m_factory.Set (name, value);
@@ -120,6 +122,10 @@ SmsEchoClientHelper::SetFill (Ptr<Application> app, uint8_t *fill, uint32_t fill
   app->GetObject<SmsEchoClient>()->SetFill (fill, fillLength, dataLength);
 }
 
+void SmsEchoClientHelper::SetFiles (Ptr<Application> app, std::vector<FileSMS> files) {
+  app->GetObject<SmsEchoClient>()->SetFiles(files);
+}
+
 ApplicationContainer
 SmsEchoClientHelper::Install (Ptr<Node> node) const
 {
@@ -133,6 +139,7 @@ SmsEchoClientHelper::Install (std::string nodeName) const
   return ApplicationContainer (InstallPriv (node));
 }
 
+// We use this method
 ApplicationContainer
 SmsEchoClientHelper::Install (NodeContainer c) const
 {
@@ -141,15 +148,20 @@ SmsEchoClientHelper::Install (NodeContainer c) const
     {
       apps.Add (InstallPriv (*i));
     }
+  // for (uint32_t i = 0; i < c.GetN(); i++) {
+  //   apps.Add (InstallPriv (c.Get(i), nodeFileList[i]));
+  // }
 
   return apps;
 }
 
-Ptr<Application>
-SmsEchoClientHelper::InstallPriv (Ptr<Node> node) const
+Ptr<SmsEchoClient>
+SmsEchoClientHelper::InstallPriv (Ptr<Node> node//, std::vector<FileSMS> fileList
+) const
 {
-  Ptr<Application> app = m_factory.Create<SmsEchoClient> ();
+  Ptr<SmsEchoClient> app = m_factory.Create<SmsEchoClient> ();
   node->AddApplication (app);
+  // app.fileList = nodeFileList[]
 
   return app;
 }

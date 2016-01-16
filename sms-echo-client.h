@@ -1,7 +1,7 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
  * Copyright 2007 University of Washington
- * 
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation;
@@ -24,11 +24,29 @@
 #include "ns3/ptr.h"
 #include "ns3/ipv4-address.h"
 #include "ns3/traced-callback.h"
+#include "sms-helpers.h"
+
+#define CHUNK_SIZE 1450
 
 namespace ns3 {
 
 class Socket;
 class Packet;
+
+class FileSMSChunks : public FileSMS {
+public:
+  FileSMSChunks(unsigned int id, size_t size);
+
+  bool* chunks;
+  uint16_t size_of_last_chunk;
+  uint32_t file_size_in_chunks;
+  uint32_t num_of_received_chunks;
+  std::vector<Ipv4Address> nodes_who_have_file;
+
+  uint32_t get_num_of_missing_chunks ();
+  void add_node_to_seen_list(Ipv4Address node);
+  double get_popularity(uint32_t total_number_of_nodes);
+};
 
 /**
  * \ingroup udpecho
@@ -36,7 +54,7 @@ class Packet;
  *
  * Every packet sent should be returned by the server and received here.
  */
-class SmsEchoClient : public Application 
+class SmsEchoClient : public Application
 {
 public:
   static TypeId GetTypeId (void);
@@ -44,6 +62,28 @@ public:
   SmsEchoClient ();
 
   virtual ~SmsEchoClient ();
+
+  void SetFiles (std::vector<FileSMS> files);
+
+  uint32_t nodes_seen;
+
+  // We would have to enable C++2011
+  // enum packet_type : uint8_t {adv, req, resp};
+
+  struct header {
+    uint8_t packet_type;
+  };
+
+  struct request_header {
+    uint16_t file_id;
+    uint16_t chunk_id;
+  };
+
+  struct reply_header {
+     Ipv4Address original_requester;
+     uint16_t file_id;
+     uint16_t chunk_id;
+  };
 
   /**
    * \param ip destination ipv4 address
@@ -68,8 +108,8 @@ public:
   /**
    * Get the number of data bytes that will be sent to the server.
    *
-   * \warning The number of bytes may be modified by calling any one of the 
-   * SetFill methods.  If you have called SetFill, then the number of 
+   * \warning The number of bytes may be modified by calling any one of the
+   * SetFill methods.  If you have called SetFill, then the number of
    * data bytes will correspond to the size of an initialized data buffer.
    * If you have not called a SetFill method, the number of data bytes will
    * correspond to the number of don't care bytes that will be sent.
@@ -79,7 +119,7 @@ public:
   uint32_t GetDataSize (void) const;
 
   /**
-   * Set the data fill of the packet (what is sent as data to the server) to 
+   * Set the data fill of the packet (what is sent as data to the server) to
    * the zero-terminated contents of the fill string string.
    *
    * \warning The size of resulting echo packets will be automatically adjusted
@@ -91,15 +131,15 @@ public:
   void SetFill (std::string fill);
 
   /**
-   * Set the data fill of the packet (what is sent as data to the server) to 
-   * the repeated contents of the fill byte.  i.e., the fill byte will be 
+   * Set the data fill of the packet (what is sent as data to the server) to
+   * the repeated contents of the fill byte.  i.e., the fill byte will be
    * used to initialize the contents of the data packet.
-   * 
+   *
    * \warning The size of resulting echo packets will be automatically adjusted
    * to reflect the dataSize parameter -- this means that the PacketSize
    * attribute may be changed as a result of this call.
    *
-   * \param fill The byte to be repeated in constructing the packet data..
+   * \param fill The byte to be repeated in constructing the packet data.
    * \param dataSize The desired size of the resulting echo packet data.
    */
   void SetFill (uint8_t fill, uint32_t dataSize);
@@ -108,7 +148,7 @@ public:
    * Set the data fill of the packet (what is sent as data to the server) to
    * the contents of the fill buffer, repeated as many times as is required.
    *
-   * Initializing the packet to the contents of a provided single buffer is 
+   * Initializing the packet to the contents of a provided single buffer is
    * accomplished by setting the fillSize set to your desired dataSize
    * (and providing an appropriate buffer).
    *
@@ -126,6 +166,7 @@ protected:
   virtual void DoDispose (void);
 
 private:
+  std::vector<FileSMSChunks> files;
 
   virtual void StartApplication (void);
   virtual void StopApplication (void);
@@ -144,11 +185,15 @@ private:
 
   uint32_t m_sent;
   Ptr<Socket> m_socket;
+  Ptr<Socket> m_socket_send;
   Address m_peerAddress;
   uint16_t m_peerPort;
   EventId m_sendEvent;
   /// Callbacks for tracing the packet Tx events
   TracedCallback<Ptr<const Packet> > m_txTrace;
+
+  std::vector<FileSMSChunks> seen_files;
+  std::vector<Ipv4Address> seen_nodes;
 };
 
 } // namespace ns3
