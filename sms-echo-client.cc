@@ -29,6 +29,7 @@
 #include "ns3/trace-source-accessor.h"
 #include "sms-echo-client.h"
 #include <cmath>
+#include <climits>
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
@@ -54,10 +55,10 @@ bool FileSMSChunks::is_full() {
 }
 
 double FileSMSChunks::get_popularity(uint32_t total_number_of_nodes) {
-  return nodes_who_have_file.size()/total_number_of_nodes;
+  return nodes_who_have_file.size()/((double) total_number_of_nodes);
 }
 
-uint32_t FileSMSChunks::get_num_of_missing_chunks () {
+uint32_t FileSMSChunks::get_num_of_missing_chunks() {
   return file_size_in_chunks - num_of_received_chunks;
 }
 
@@ -100,6 +101,38 @@ uint32_t SmsEchoClient::GetNumOfFullFiles() {
       full_files += 1;
   }
   return full_files;
+}
+
+FileSMSChunks SmsEchoClient::getFileToRequest() {
+  std::stringstream ss;
+  ss << "Files with lowest chunks missing: ";
+  uint32_t minimumChunksMissing = UINT_MAX;
+  std::vector<FileSMSChunks> filesWithMinimumChunks;
+  for (size_t i = 0; i < files.size(); i++) {
+    if (!files[i].is_full()) {
+      if (files[i].get_num_of_missing_chunks() < minimumChunksMissing) {
+        filesWithMinimumChunks.clear();
+        filesWithMinimumChunks.push_back(files[i]);
+        minimumChunksMissing = files[i].get_num_of_missing_chunks();
+      } else if (files[i].get_num_of_missing_chunks() == minimumChunksMissing) {
+        filesWithMinimumChunks.push_back(files[i]);
+      }
+    }
+  }
+  FileSMSChunks fileWithLowestPopularity = FileSMSChunks(0,0,true);
+  double lowest_popularity = INFINITY;
+  for (size_t i = 0; i < filesWithMinimumChunks.size(); i++) {
+    FileSMSChunks file = filesWithMinimumChunks[i];
+    ss << "ID: " << file.getFileId() << ", chunks missing: " << file.get_num_of_missing_chunks() << ", popularity: " << file.get_popularity(seen_nodes.size()) << "; ";
+    if (file.get_popularity(seen_nodes.size()) < lowest_popularity) {
+      fileWithLowestPopularity = file;
+      lowest_popularity = file.get_popularity(seen_nodes.size());
+    }
+  }
+  ss << "CHOSEN FILE TO REQUEST: ID: " << fileWithLowestPopularity.getFileId() << " popularity: " << fileWithLowestPopularity.get_popularity(seen_nodes.size()) << "; ";
+  NS_LOG_INFO(ss.str());
+  // If the file returned file is full it means that it's invalid because the client knows no more files to request.
+  return fileWithLowestPopularity;
 }
 
 uint8_t* SmsEchoClient::EncodeFilesForAdv() {
@@ -147,6 +180,7 @@ std::vector<FileSMSChunks> SmsEchoClient::DecodeFilesForAdv(uint8_t* raw_array, 
         " size: " << received_files[i].getFileSize() <<
         " chunks: " << received_files[i].file_size_in_chunks << "; ";
       files.push_back(received_files[i]);
+      files.back().add_node_to_seen_list(sender);
     }
 
   }
@@ -215,6 +249,7 @@ void SmsEchoClient::SetFiles (std::vector<FileSMS> filesToSet) {
 
 void SmsEchoClient::SetIPAdress (Ipv4Address address) {
   this->address = address;
+  // addNodeToSeenList(this->address);
 }
 
 SmsEchoClient::SmsEchoClient ()
@@ -466,7 +501,7 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
   Address from;
   while ((packet = socket->RecvFrom (from)))
     {
-      NS_LOG_INFO("Received something");
+      // NS_LOG_INFO("Received something");
       if (InetSocketAddress::IsMatchingType (from))
         {
           NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds () << "s client " << address << " received " << packet->GetSize () << " bytes from " <<
@@ -496,6 +531,8 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
         m_socket_send->Send(packet);
       } else if (packet_content[0] == 1) {
         NS_LOG_INFO("Packet is a request");
+        FileSMSChunks file_to_request = getFileToRequest();
+        // NS_LOG_INFO();
         request_header request;
         uint8_t raw_packet[packet->GetSize ()];
         packet->CopyData(raw_packet, packet->GetSize ());
@@ -528,9 +565,6 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
         packet = Create<Packet> (data, data_size);
         m_txTrace (packet);
         m_socket_send->Send(packet);
-        for (size_t i = 0; i < files.size(); i++) {
-          NS_LOG_INFO()
-        }
       } else if (packet_content[0] == 2) {
         NS_LOG_INFO("Packet is a reply");
       } else {

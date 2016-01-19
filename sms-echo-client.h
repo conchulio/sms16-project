@@ -68,11 +68,12 @@ public:
   void SetIPAdress (Ipv4Address address);
   uint32_t GetNumOfFullFiles();
   void addNodeToSeenList(Ipv4Address sender);
+  FileSMSChunks getFileToRequest();
 
   uint8_t* EncodeFilesForAdv();
   std::vector<FileSMSChunks> DecodeFilesForAdv(uint8_t* raw_array, uint8_t num_advertised_files, Ipv4Address sender);
 
-  uint32_t nodes_seen;
+  // uint32_t nodes_seen;
 
   // We would have to enable C++2011
   // enum packet_type : uint8_t {adv, req, resp};
