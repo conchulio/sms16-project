@@ -58,9 +58,8 @@ int main(int argc, char* argv[]) {
     ApplicationContainer apps = client.Install(c);
     for (uint32_t i = 0; i < c.GetN(); i++) {
       SmsEchoClient* smsApp = static_cast<SmsEchoClient*> (&(*(c.Get(i)->GetApplication(0))));
-      // NS_LOG_INFO("Here I am");
+      smsApp->SetIPAdress(interfaces.Get(i).first->GetAddress(1,0).GetLocal());
       smsApp->SetFiles (nodeFileList[i]);
-      // NS_LOG_INFO("Still there");
     }
     apps.Start(Seconds(2.0));
     apps.Stop(Seconds(10.0));

@@ -35,7 +35,7 @@ class Packet;
 
 class FileSMSChunks : public FileSMS {
 public:
-  FileSMSChunks(unsigned int id, size_t size);
+  FileSMSChunks(unsigned int id, size_t size, bool i_have_full_file);
 
   bool* chunks;
   uint16_t size_of_last_chunk;
@@ -46,6 +46,7 @@ public:
   uint32_t get_num_of_missing_chunks ();
   void add_node_to_seen_list(Ipv4Address node);
   double get_popularity(uint32_t total_number_of_nodes);
+  bool is_full();
 };
 
 /**
@@ -63,27 +64,38 @@ public:
 
   virtual ~SmsEchoClient ();
 
-  void SetFiles (std::vector<FileSMS> files);
+  void SetFiles (std::vector<FileSMS> filesToSet);
+  void SetIPAdress (Ipv4Address address);
+  uint32_t GetNumOfFullFiles();
+  void addNodeToSeenList(Ipv4Address sender);
+
+  uint8_t* EncodeFilesForAdv();
+  std::vector<FileSMSChunks> DecodeFilesForAdv(uint8_t* raw_array, uint8_t num_advertised_files, Ipv4Address sender);
 
   uint32_t nodes_seen;
 
   // We would have to enable C++2011
   // enum packet_type : uint8_t {adv, req, resp};
 
-  struct header {
+  typedef struct {
     uint8_t packet_type;
-  };
+  } adv_header;
 
-  struct request_header {
-    uint16_t file_id;
-    uint16_t chunk_id;
-  };
+  typedef struct {
+    uint8_t packet_type;
+    uint32_t receiver_address;
+    uint32_t file_id;
+    uint32_t chunk_id;
+  } request_header;
 
-  struct reply_header {
-     Ipv4Address original_requester;
-     uint16_t file_id;
-     uint16_t chunk_id;
-  };
+  typedef struct {
+    uint8_t packet_type;
+    uint32_t original_requester;
+    uint32_t file_id;
+    uint32_t chunk_id;
+  } reply_header;
+
+  static const size_t reply_header_length = 13;
 
   /**
    * \param ip destination ipv4 address
@@ -167,6 +179,7 @@ protected:
 
 private:
   std::vector<FileSMSChunks> files;
+  Ipv4Address address;
 
   virtual void StartApplication (void);
   virtual void StopApplication (void);
@@ -175,6 +188,7 @@ private:
   void Send (void);
 
   void HandleRead (Ptr<Socket> socket);
+  void HandleRequest (Ptr<Socket> socket);
 
   uint32_t m_count;
   Time m_interval;
@@ -192,7 +206,7 @@ private:
   /// Callbacks for tracing the packet Tx events
   TracedCallback<Ptr<const Packet> > m_txTrace;
 
-  std::vector<FileSMSChunks> seen_files;
+  // std::vector<FileSMSChunks> seen_files;
   std::vector<Ipv4Address> seen_nodes;
 };
 

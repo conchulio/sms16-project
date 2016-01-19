@@ -30,17 +30,27 @@
 #include "sms-echo-client.h"
 #include <cmath>
 
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("SmsEchoClientApplication");
 NS_OBJECT_ENSURE_REGISTERED (SmsEchoClient);
 
-FileSMSChunks::FileSMSChunks(unsigned int id, size_t size) : FileSMS(id, size) {
+FileSMSChunks::FileSMSChunks(unsigned int id, size_t size, bool i_have_full_file) : FileSMS(id, size) {
   file_size_in_chunks = (uint32_t) std::ceil(1000*size/((double) CHUNK_SIZE));
   size_of_last_chunk = (1000*size) % CHUNK_SIZE;
   chunks = new bool[file_size_in_chunks];
-  num_of_received_chunks = 0;
+  if (!i_have_full_file)
+    num_of_received_chunks = 0;
+  else
+    num_of_received_chunks = file_size_in_chunks;
   // nodes_who_have_file = new std::vector<Ipv4Address>;
+}
+
+bool FileSMSChunks::is_full() {
+  return num_of_received_chunks == file_size_in_chunks;
 }
 
 double FileSMSChunks::get_popularity(uint32_t total_number_of_nodes) {
@@ -52,7 +62,100 @@ uint32_t FileSMSChunks::get_num_of_missing_chunks () {
 }
 
 void FileSMSChunks::add_node_to_seen_list(Ipv4Address node) {
+  // bool not_in_list_yet = true;
+  for (size_t i = 0; i < nodes_who_have_file.size(); i++) {
+    if (nodes_who_have_file[i].IsEqual(node)) {
+      // not_in_list_yet = false;
+      return;
+    }
+  }
   nodes_who_have_file.push_back(node);
+  NS_LOG_INFO("File " << getFileId() << " seen in these nodes: ");
+  for (size_t i = 0; i < nodes_who_have_file.size(); i++) {
+     NS_LOG_INFO(nodes_who_have_file[i]);
+  }
+}
+
+void SmsEchoClient::addNodeToSeenList(Ipv4Address sender) {
+  for (size_t i = 0; i < seen_nodes.size(); i++) {
+    if (seen_nodes[i].IsEqual(sender)) {
+      // not_in_list_yet = false;
+      return;
+    }
+  }
+  seen_nodes.push_back(sender);
+  std::stringstream ss;
+  ss << "Seen nodes in " << address << ": ";
+  // for (size_t i = 0; i < seen_nodes.size(); i++) {
+  //    ss << seen_nodes[i] << ", ";
+  // }
+  ss << seen_nodes.size();
+  NS_LOG_INFO(ss.str());
+}
+
+uint32_t SmsEchoClient::GetNumOfFullFiles() {
+  uint32_t full_files = 0;
+  for (uint32_t i = 0; i < files.size(); i++) {
+    if(files[i].is_full())
+      full_files += 1;
+  }
+  return full_files;
+}
+
+uint8_t* SmsEchoClient::EncodeFilesForAdv() {
+  // NS_LOG_INFO("Warning: Only 16 bits for id and size in order that the packet doesn't overflow");
+  //                                                times 2 because of id and size being transmitted
+  uint32_t full_files = GetNumOfFullFiles();
+  NS_LOG_INFO("Total files " << files.size() << " full files " << full_files);
+  uint16_t* array = (uint16_t*) malloc(full_files*2*sizeof(uint16_t));
+  // uint16_t array[files.size()*2];
+  uint32_t i = 0;
+  uint32_t j = 0;
+  while (i < full_files) {
+    if (!files[j].is_full()) {
+      j++;
+      // NS_LOG_INFO(j);
+      continue;
+    }
+    array[i*2] = (uint16_t) files[j].getFileId();
+    array[i*2+1] = (uint16_t) files[j].getFileSize();
+    j++;
+    i++;
+    // NS_LOG_INFO(i);
+  }
+  return (uint8_t*) array;
+}
+
+std::vector<FileSMSChunks> SmsEchoClient::DecodeFilesForAdv(uint8_t* raw_array, uint8_t num_advertised_files, Ipv4Address sender) {
+  uint16_t* array = (uint16_t*) raw_array;
+  std::vector<FileSMSChunks> received_files;
+  for (size_t i = 0; i < num_advertised_files; i++) {
+    received_files.push_back(FileSMSChunks(array[i*2], array[i*2+1], false));
+  }
+  std::stringstream ss;
+  for (size_t i = 0; i < received_files.size(); i++) {
+    bool already_known_file = false;
+    for (size_t j = 0; j < files.size(); j++) {
+      if (files[j] == received_files[i]) {
+        files[j].add_node_to_seen_list(sender);
+        already_known_file = true;
+        break;
+      }
+    }
+    if (!already_known_file) {
+      ss << "File " << received_files[i].getFileId() <<
+        " size: " << received_files[i].getFileSize() <<
+        " chunks: " << received_files[i].file_size_in_chunks << "; ";
+      files.push_back(received_files[i]);
+    }
+
+  }
+  if (!ss.str().empty()) {
+    NS_LOG_INFO("Unknown files seen " << ss.str());
+  } else {
+    NS_LOG_INFO("No new files seen");
+  }
+  return received_files;
 }
 
 TypeId
@@ -92,18 +195,26 @@ SmsEchoClient::GetTypeId (void)
   return tid;
 }
 
-void SmsEchoClient::SetFiles (std::vector<FileSMS> files) {
-  this->files.clear();
+void SmsEchoClient::SetFiles (std::vector<FileSMS> filesToSet) {
+  files.clear();
   std::vector<FileSMS>::const_iterator it;
-  for (uint32_t i = 0; i < files.size(); i++) {
+  NS_LOG_INFO("Node " << address);
+  std::stringstream ss;
+  for (uint32_t i = 0; i < filesToSet.size(); i++) {
     // NS_LOG_INFO("Before creating the object");
-    this->files.push_back(FileSMSChunks(files[i].getFileId(),files[i].getFileSize()));
+    files.push_back(FileSMSChunks(filesToSet[i].getFileId(),filesToSet[i].getFileSize(),true));
     // NS_LOG_INFO("File Size");
     // NS_LOG_INFO(this->files.size());
-    NS_LOG_INFO("File " << this->files[i].getFileId() <<
-      " size: " << this->files[i].getFileSize() <<
-      " chunks: " << this->files[i].file_size_in_chunks);
+    ss << "File " << files[i].getFileId() <<
+      // " size: " << files[i].getFileSize() <<
+      // " chunks: " << files[i].file_size_in_chunks <<
+       "; ";
   }
+  NS_LOG_INFO(ss.str());
+}
+
+void SmsEchoClient::SetIPAdress (Ipv4Address address) {
+  this->address = address;
 }
 
 SmsEchoClient::SmsEchoClient ()
@@ -156,18 +267,14 @@ SmsEchoClient::StartApplication (void)
 {
   NS_LOG_FUNCTION (this);
   TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
+
   if (m_socket == 0) {
       m_socket = Socket::CreateSocket (GetNode (), tid);
       InetSocketAddress local = InetSocketAddress (Ipv4Address::GetAny (), m_peerPort);
       m_socket->Bind (local);
-      // TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
-      // m_socket = Socket::CreateSocket (GetNode (), tid);
-      // if (Ipv4Address::IsMatchingType(m_peerAddress) == true)
-      //   {
-      //     m_socket->Bind();
-      //     m_socket->Connect (InetSocketAddress (Ipv4Address::ConvertFrom(m_peerAddress), m_peerPort));
-      //   }
   }
+  m_socket->SetRecvCallback (MakeCallback (&SmsEchoClient::HandleRead, this));
+
   if (m_socket_send == 0) {
     m_socket_send = Socket::CreateSocket (GetNode (), tid);
     // if (Ipv4Address::IsMatchingType(m_peerAddress) == true)
@@ -177,12 +284,10 @@ SmsEchoClient::StartApplication (void)
         m_socket_send->Connect (InetSocketAddress (Ipv4Address::ConvertFrom(m_peerAddress), m_peerPort));
       }
   }
-
   m_socket_send->SetAllowBroadcast(true);
-  m_socket->SetRecvCallback (MakeCallback (&SmsEchoClient::HandleRead, this));
+  m_socket_send->SetRecvCallback(MakeNullCallback<void, Ptr<Socket> > ());
 
   double random_offset = ((double) std::rand() / RAND_MAX);
-  // std::cout << "Random offset is " << RAND_MAX << std::endl;
   ScheduleTransmit (Seconds (0.+random_offset));
 }
 
@@ -322,11 +427,18 @@ SmsEchoClient::Send (void)
 
   NS_ASSERT (m_sendEvent.IsExpired ());
 
-  // std::cout << files;
-
   uint8_t adv[] = {0};
-  this->SetFill(adv, 1, 1);
-
+  uint8_t num_files[] = {(uint8_t) GetNumOfFullFiles()};
+  uint8_t* encoded_files = this->EncodeFilesForAdv();
+  size_t full_length_of_packet = sizeof(adv)*2+sizeof(uint16_t)*files.size()*2;
+  uint8_t* full_packet = (uint8_t*) malloc(full_length_of_packet);
+  memcpy(full_packet, adv, sizeof(adv));
+  memcpy(full_packet+sizeof(adv), num_files, sizeof(num_files));
+  memcpy(full_packet+sizeof(adv)+sizeof(num_files), encoded_files, sizeof(uint16_t)*GetNumOfFullFiles()*2);
+  free(encoded_files);
+  SetFill(full_packet, full_length_of_packet, full_length_of_packet);
+  free(full_packet);
+  // NS_LOG_INFO("Sent stuff!!!!");
   Ptr<Packet> p;
   p = Create<Packet> (m_data, m_dataSize);
 
@@ -336,7 +448,7 @@ SmsEchoClient::Send (void)
   ++m_sent;
 
   NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds ()
-      << "s client sent Advertisement to 255.255.255.255 port "<< m_peerPort);
+      << "s client " << address << " sent Advertisement to 255.255.255.255 port "<< m_peerPort);
 
   if (m_sent < m_count)
     {
@@ -344,6 +456,7 @@ SmsEchoClient::Send (void)
     }
 }
 
+// Handles everything that's broadcast
 void
 SmsEchoClient::HandleRead (Ptr<Socket> socket)
 {
@@ -353,22 +466,117 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
   Address from;
   while ((packet = socket->RecvFrom (from)))
     {
+      NS_LOG_INFO("Received something");
       if (InetSocketAddress::IsMatchingType (from))
         {
-          NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds () << "s client received " << packet->GetSize () << " bytes from " <<
+          NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds () << "s client " << address << " received " << packet->GetSize () << " bytes from " <<
                        InetSocketAddress::ConvertFrom (from).GetIpv4 () << " port " <<
                        InetSocketAddress::ConvertFrom (from).GetPort ());
         }
-      uint8_t packetType[1];
-      packet->CopyData(packetType, 1);
-      if (packetType[0] == 0) {
-        /* NS_LOG_INFO("Sending response"); */
-        uint8_t response[] = {1};
-        packet = Create<Packet> (response, 1);
+      size_t size_of_header_preview = MIN(packet->GetSize(),2*sizeof(uint8_t));
+      uint8_t packet_content[size_of_header_preview];
+      packet->CopyData(packet_content, size_of_header_preview);
+      // NS_LOG_INFO("Packet size " << packet->GetSize());
+      // char s[1];
+      // sprintf(s,"%d", packet_content[0]);
+      NS_LOG_INFO("Packet content " << ((uint32_t) packet_content[0]));
+      if (packet_content[0] == 0) {
+        NS_LOG_INFO("Packet is an advertisement");
+        addNodeToSeenList(InetSocketAddress::ConvertFrom (from).GetIpv4 ());
+        uint8_t num_of_files = packet_content[1];
+        packet->RemoveAtStart(sizeof(uint8_t)*2);
+        // Maybe not safe to put huge amounts of data on the stack...
+        uint8_t raw_files[packet->GetSize ()];
+        packet->CopyData(raw_files, packet->GetSize ());
+        DecodeFilesForAdv(raw_files, num_of_files, InetSocketAddress::ConvertFrom (from).GetIpv4 ());
+        request_header req_h = {.packet_type = 1, .receiver_address = InetSocketAddress::ConvertFrom(from).GetIpv4().Get(), .file_id = 0, .chunk_id = 0};
+        packet = Create<Packet> ((uint8_t*) &req_h, sizeof(request_header));
         m_txTrace (packet);
-        socket->SendTo(packet, 0, from);
+        // socket->SendTo(packet, 0, from);
+        m_socket_send->Send(packet);
+      } else if (packet_content[0] == 1) {
+        NS_LOG_INFO("Packet is a request");
+        request_header request;
+        uint8_t raw_packet[packet->GetSize ()];
+        packet->CopyData(raw_packet, packet->GetSize ());
+        memcpy(&request, raw_packet, sizeof(request_header));
+        Ipv4Address receiver_address = Ipv4Address(request.receiver_address);
+        NS_LOG_INFO("Receiver address: " << receiver_address);
+        if (!receiver_address.IsEqual(address)) {
+          NS_LOG_INFO("My address " << address << ", this packet isn't for me");
+          return;
+        }
+        // typedef struct {
+        //   uint8_t packet_type;
+        //   uint32_t original_requester;
+        //   uint32_t file_id;
+        //   uint32_t chunk_id;
+        // } reply_header;
+        reply_header header;
+        header.packet_type = 2;
+        header.original_requester = InetSocketAddress::ConvertFrom(from).GetIpv4().Get();
+        // Retrieve chunk
+        // TODO
+        size_t chunk_size;
+        if (true) {
+          chunk_size = CHUNK_SIZE;
+        }
+        // Send requested chunk
+        size_t data_size = sizeof(reply_header) + chunk_size;
+        uint8_t data[data_size];
+        memcpy(data, &header, sizeof(reply_header));
+        packet = Create<Packet> (data, data_size);
+        m_txTrace (packet);
+        m_socket_send->Send(packet);
+        for (size_t i = 0; i < files.size(); i++) {
+          NS_LOG_INFO()
+        }
+      } else if (packet_content[0] == 2) {
+        NS_LOG_INFO("Packet is a reply");
+      } else {
+        NS_LOG_INFO("Got some packet type :o");
       }
     }
 }
+
+// Handles everything that's unicast
+// void
+// SmsEchoClient::HandleRequest (Ptr<Socket> socket) {
+//   NS_LOG_FUNCTION(this << socket);
+//   Ptr<Packet> packet;
+//   Address from;
+//   while (packet = socket->RecvFrom(from)) {
+//       if (InetSocketAddress::IsMatchingType (from)) {
+//           NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds () << "s client " << address << " received " << packet->GetSize () << " bytes from " <<
+//                        InetSocketAddress::ConvertFrom (from).GetIpv4 () << " port " <<
+//                        InetSocketAddress::ConvertFrom (from).GetPort ());
+//       }
+//       size_t req_size = sizeof(SmsEchoClient::request_header);
+//       uint8_t req_buffer[req_size];
+//       SmsEchoClient::request_header request;
+//       packet->CopyData(req_buffer, req_size);
+//       memcpy(&request, req_buffer, req_size);
+//       if (request.packet_type == 1) {
+//         SmsEchoClient::reply_header header;
+//         header.packet_type = 2;
+//         header.original_requester = InetSocketAddress::ConvertFrom(from).GetIpv4().Get();
+//         // Retrieve chunk
+//         // TODO
+//         size_t chunk_size;
+//         if (true) {
+//           chunk_size = CHUNK_SIZE;
+//         }
+//         // Send requested chunk
+//         NS_LOG_WARN("Ah, sizeof(struct) gives you a wrong size because of alignment of the struct in memory!");
+//         size_t data_size = sizeof(SmsEchoClient::reply_header) + chunk_size;
+//         uint8_t* data = new uint8_t[data_size];
+//         memcpy(data, &header, sizeof(SmsEchoClient::reply_header));
+//         packet = Create<Packet> (data, data_size);
+//         m_txTrace (packet);
+//         m_socket_send->Send(packet);
+//         delete data;
+//       }
+//   }
+// }
 
 } // Namespace ns3
