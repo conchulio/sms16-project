@@ -30,9 +30,12 @@
 #include "sms-echo-client.h"
 #include <cmath>
 #include <climits>
+#include <cstdlib>
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
+
+#define ADVERTISEMENT_OFFSET 50.0
 
 namespace ns3 {
 
@@ -40,9 +43,22 @@ NS_LOG_COMPONENT_DEFINE ("SmsEchoClientApplication");
 NS_OBJECT_ENSURE_REGISTERED (SmsEchoClient);
 
 FileSMSChunks::FileSMSChunks(unsigned int id, size_t size, bool i_have_full_file) : FileSMS(id, size) {
+  // NS_LOG_INFO("Constructor called file " << id);
   file_size_in_chunks = (uint32_t) std::ceil(1000*size/((double) CHUNK_SIZE));
   size_of_last_chunk = (1000*size) % CHUNK_SIZE;
-  chunks = new bool[file_size_in_chunks];
+  for (size_t i = 0; i < file_size_in_chunks; i++) {
+    if (i_have_full_file)
+      chunks.push_back(true);
+    else
+      chunks.push_back(false);
+  }
+  // NS_LOG_INFO("chunks pointer at construction: " << chunks);
+  // if (file_size_in_chunks == 0) {
+  //   NS_LOG_INFO("File size is zero");
+  // }
+  // if (this->chunks == NULL) {
+  //   NS_LOG_INFO("Calloc died");
+  // }
   if (!i_have_full_file)
     num_of_received_chunks = 0;
   else
@@ -52,6 +68,28 @@ FileSMSChunks::FileSMSChunks(unsigned int id, size_t size, bool i_have_full_file
 
 bool FileSMSChunks::is_full() {
   return num_of_received_chunks == file_size_in_chunks;
+}
+
+bool FileSMSChunks::seen_in_node(Ipv4Address node) {
+  return std::find(nodes_who_have_file.begin(), nodes_who_have_file.end(), node) != nodes_who_have_file.end();
+}
+
+uint32_t FileSMSChunks::get_first_missing_chunk() {
+  uint32_t first_missing_chunk = 0;
+  for (;first_missing_chunk < file_size_in_chunks; first_missing_chunk++) {
+    if (!chunks[first_missing_chunk]) {
+      break;
+    }
+  }
+  return first_missing_chunk;
+}
+
+uint16_t FileSMSChunks::get_size_of_chunk(uint32_t chunk_id) {
+  if (chunk_id == file_size_in_chunks-1) {
+    return size_of_last_chunk;
+  } else {
+    return CHUNK_SIZE;
+  }
 }
 
 double FileSMSChunks::get_popularity(uint32_t total_number_of_nodes) {
@@ -71,9 +109,9 @@ void FileSMSChunks::add_node_to_seen_list(Ipv4Address node) {
     }
   }
   nodes_who_have_file.push_back(node);
-  NS_LOG_INFO("File " << getFileId() << " seen in these nodes: ");
+  // NS_LOG_INFO("File " << getFileId() << " seen in these nodes: ");
   for (size_t i = 0; i < nodes_who_have_file.size(); i++) {
-     NS_LOG_INFO(nodes_who_have_file[i]);
+    //  NS_LOG_INFO(nodes_who_have_file[i]);
   }
 }
 
@@ -91,7 +129,7 @@ void SmsEchoClient::addNodeToSeenList(Ipv4Address sender) {
   //    ss << seen_nodes[i] << ", ";
   // }
   ss << seen_nodes.size();
-  NS_LOG_INFO(ss.str());
+  // NS_LOG_INFO(ss.str());
 }
 
 uint32_t SmsEchoClient::GetNumOfFullFiles() {
@@ -103,13 +141,49 @@ uint32_t SmsEchoClient::GetNumOfFullFiles() {
   return full_files;
 }
 
-FileSMSChunks SmsEchoClient::getFileToRequest() {
+bool SmsEchoClient::add_new_chunk(uint32_t file_id, uint32_t file_size, uint32_t chunk_id, Ipv4Address sender) {
+  std::pair<FileSMSChunks,int32_t> file_valid_pair = getFileById(file_id);
+  if (file_valid_pair.second == -1) {
+    // We haven't seen this file so far
+    files.push_back(FileSMSChunks(file_id, file_size, false));
+    files.back().add_node_to_seen_list(sender);
+    files.back().chunks[chunk_id] = true;
+    files.back().num_of_received_chunks+=1;
+    NS_LOG_INFO("Got new chunk " << chunk_id << " for previously unknown file " << file_id);
+  } else if (!files[file_valid_pair.second].chunks[chunk_id]) {
+    // We already know about this file
+    NS_LOG_INFO(address << " got new chunk " << chunk_id << " for file " << file_id << " file index in array " << file_valid_pair.second);
+    files[file_valid_pair.second].add_node_to_seen_list(sender);
+    files[file_valid_pair.second].chunks[chunk_id] = true;
+    files[file_valid_pair.second].num_of_received_chunks+=1;
+  } else {
+    return false;
+  }
+  NS_LOG_INFO("Num of received chunks " << files[file_valid_pair.second].num_of_received_chunks);
+  return true;
+}
+
+std::pair<FileSMSChunks,int32_t> SmsEchoClient::getFileById(uint32_t id) {
+  for (size_t i = 0; i < files.size(); i++) {
+    // NS_LOG_INFO("ID we look for " << id << " this file's id " << files[i].getFileId() << " i " << i);
+    if (files[i].getFileId() == id) {
+      // NS_LOG_INFO("Found it! ID we look for " << id << " this file's id " << files[i].getFileId() << " i " << i);
+      return std::pair<FileSMSChunks,uint32_t>(files[i],i);
+    }
+  }
+  // NS_LOG_WARN("Looking up file by id but there's no file with this id. Program will crash.");
+  // abort();
+  // This will never be returned
+  return std::pair<FileSMSChunks,uint32_t>(FileSMSChunks(0,0,true),-1);
+}
+
+FileSMSChunks SmsEchoClient::getFileToRequest(Ipv4Address node_which_we_ask) {
   std::stringstream ss;
   ss << "Files with lowest chunks missing: ";
   uint32_t minimumChunksMissing = UINT_MAX;
   std::vector<FileSMSChunks> filesWithMinimumChunks;
   for (size_t i = 0; i < files.size(); i++) {
-    if (!files[i].is_full()) {
+    if (!files[i].is_full() && files[i].seen_in_node(node_which_we_ask)) {
       if (files[i].get_num_of_missing_chunks() < minimumChunksMissing) {
         filesWithMinimumChunks.clear();
         filesWithMinimumChunks.push_back(files[i]);
@@ -129,9 +203,12 @@ FileSMSChunks SmsEchoClient::getFileToRequest() {
       lowest_popularity = file.get_popularity(seen_nodes.size());
     }
   }
-  ss << "CHOSEN FILE TO REQUEST: ID: " << fileWithLowestPopularity.getFileId() << " popularity: " << fileWithLowestPopularity.get_popularity(seen_nodes.size()) << "; ";
+  ss << "all files which I have: ";
+  for (size_t i = 0; i < files.size(); i++) {
+    ss << "id: " << files[i].getFileId() << " is full? " << files[i].is_full() << ", ";
+  }
+  ss << "CHOSEN FILE TO REQUEST: ID: " << fileWithLowestPopularity.getFileId() << " popularity: " << fileWithLowestPopularity.get_popularity(seen_nodes.size()) << " index: " << getFileById(fileWithLowestPopularity.getFileId()).second << ";";
   NS_LOG_INFO(ss.str());
-  // If the file returned file is full it means that it's invalid because the client knows no more files to request.
   return fileWithLowestPopularity;
 }
 
@@ -182,12 +259,22 @@ std::vector<FileSMSChunks> SmsEchoClient::DecodeFilesForAdv(uint8_t* raw_array, 
       files.push_back(received_files[i]);
       files.back().add_node_to_seen_list(sender);
     }
-
   }
   if (!ss.str().empty()) {
     NS_LOG_INFO("Unknown files seen " << ss.str());
   } else {
     NS_LOG_INFO("No new files seen");
+    std::stringstream ss;
+    ss << "Files which I have: ";
+    for (uint32_t i = 0; i < files.size(); i++) {
+      if (files[i].is_full())
+        ss << "File " << files[i].getFileId() << "; ";
+    }
+    ss << "Files which the other node has: ";
+    for (uint32_t i = 0; i < received_files.size(); i++) {
+      ss << "File " << received_files[i].getFileId() << "; ";
+    }
+    NS_LOG_INFO(ss.str());
   }
   return received_files;
 }
@@ -235,16 +322,13 @@ void SmsEchoClient::SetFiles (std::vector<FileSMS> filesToSet) {
   NS_LOG_INFO("Node " << address);
   std::stringstream ss;
   for (uint32_t i = 0; i < filesToSet.size(); i++) {
-    // NS_LOG_INFO("Before creating the object");
     files.push_back(FileSMSChunks(filesToSet[i].getFileId(),filesToSet[i].getFileSize(),true));
-    // NS_LOG_INFO("File Size");
-    // NS_LOG_INFO(this->files.size());
     ss << "File " << files[i].getFileId() <<
       // " size: " << files[i].getFileSize() <<
       // " chunks: " << files[i].file_size_in_chunks <<
        "; ";
   }
-  NS_LOG_INFO(ss.str());
+  // NS_LOG_INFO(ss.str());
 }
 
 void SmsEchoClient::SetIPAdress (Ipv4Address address) {
@@ -258,7 +342,9 @@ SmsEchoClient::SmsEchoClient ()
   m_sent = 0;
   m_socket = 0;
   m_socket_send = 0;
-  m_sendEvent = EventId ();
+  m_sendEvent = EventId();
+  m_requestEvent = EventId();
+  m_replyEvent = EventId();
   m_data = 0;
   m_dataSize = 0;
 }
@@ -322,8 +408,8 @@ SmsEchoClient::StartApplication (void)
   m_socket_send->SetAllowBroadcast(true);
   m_socket_send->SetRecvCallback(MakeNullCallback<void, Ptr<Socket> > ());
 
-  double random_offset = ((double) std::rand() / RAND_MAX);
-  ScheduleTransmit (Seconds (0.+random_offset));
+  // ScheduleTransmit (Seconds (0.+random_offset));
+  m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(true)), &SmsEchoClient::Send, this);
 }
 
 void
@@ -342,7 +428,7 @@ SmsEchoClient::StopApplication ()
       m_socket_send = 0;
   }
 
-  Simulator::Cancel (m_sendEvent);
+  Simulator::Cancel(m_sendEvent);
 }
 
 void
@@ -448,12 +534,12 @@ SmsEchoClient::SetFill (uint8_t *fill, uint32_t fillSize, uint32_t dataSize)
   m_size = dataSize;
 }
 
-void
-SmsEchoClient::ScheduleTransmit (Time dt)
-{
-  NS_LOG_FUNCTION (this << dt);
-  m_sendEvent = Simulator::Schedule (dt, &SmsEchoClient::Send, this);
-}
+// void
+// SmsEchoClient::ScheduleTransmit (Time dt)
+// {
+//   NS_LOG_FUNCTION (this << dt);
+//   m_sendEvent = Simulator::Schedule (dt, &SmsEchoClient::Send, this);
+// }
 
 void
 SmsEchoClient::Send (void)
@@ -480,15 +566,81 @@ SmsEchoClient::Send (void)
   m_txTrace (p);
   m_socket_send->Send(p);
 
-  ++m_sent;
+  // ++m_sent;
 
   NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds ()
       << "s client " << address << " sent Advertisement to 255.255.255.255 port "<< m_peerPort);
 
-  if (m_sent < m_count)
-    {
-      ScheduleTransmit (m_interval);
-    }
+  // if (m_sent < m_count)
+  //   {
+  // ScheduleTransmit (m_interval);
+  //   }
+}
+
+/*
+IDEA: conservative approach: with 24Mbps one full frame of 1500 bytes
+takes 0.001s to transmit.
+
+So:
+timer for reply:    0s
+timer for request:  (num_of_full_files_i_own+1) * 0.001s
+  maybe even less or maybe
+                    ln(num_of_full_files_i_own+2) * 0.001s
+  or maybe something with sqrt(x)
+timer for advertisement: 50+50*(1/(num_of_full_files_i_own+1))+(random number from -5 to 5)
+*/
+
+double SmsEchoClient::get_time_advertisement(bool start) {
+  // All values in milliseconds
+  double offset = ADVERTISEMENT_OFFSET;
+  if (start) {
+    offset = 0;
+  }
+  double num_of_full_files_i_own = (double) GetNumOfFullFiles();
+  // from -5.0 to 5.0
+  double random_component = ((double) std::rand() / RAND_MAX)*10;
+  double to_seconds = 0.001;
+  return to_seconds*(offset+num_of_full_files_i_own+random_component);
+}
+
+double SmsEchoClient::get_time_request() {
+  double num_of_full_files_i_own = (double) GetNumOfFullFiles();
+  double to_seconds = 0.001;
+  double random_component = ((double) std::rand() / RAND_MAX)*10;
+  double reply = num_of_full_files_i_own+1.0+random_component;
+  if (reply > ADVERTISEMENT_OFFSET) {
+    NS_LOG_WARN("This reply is scheduled with lower priority than an advertisement :o");
+  }
+  // NS_LOG_INFO("Number of files I own: " << reply);
+  return to_seconds*reply;
+}
+
+void SmsEchoClient::cancel_all_events() {
+  Simulator::Cancel(m_sendEvent);
+  Simulator::Cancel(m_replyEvent);
+  Simulator::Cancel(m_requestEvent);
+}
+
+void SmsEchoClient::request_packet(Ipv4Address sender, FileSMSChunks file_to_request) {
+  NS_LOG_INFO(address << " requesting file " << file_to_request.getFileId() << " chunk number " << file_to_request.get_first_missing_chunk() <<
+    " number of chunk we already have " << file_to_request.num_of_received_chunks << " size of chunk array " << file_to_request.chunks.size());
+  request_header request = {.packet_type = 1, .receiver_address = sender.Get(),
+    .file_id = file_to_request.getFileId(), .chunk_id = file_to_request.get_first_missing_chunk()};
+  Ptr<Packet> packet = Create<Packet> ((uint8_t*) &request, sizeof(request_header));
+  // m_txTrace (packet);
+  // socket->SendTo(packet, 0, from);
+  m_socket_send->Send(packet);
+}
+
+void SmsEchoClient::reply(reply_header* reply, uint16_t chunk_size) {
+  NS_LOG_INFO("Sending reply, file ID: " << reply->file_id << ", chunk_id: " << reply->chunk_id);
+  size_t data_size = sizeof(reply_header) + chunk_size;
+  uint8_t data[data_size];
+  memcpy(data, reply, sizeof(reply_header));
+  Ptr<Packet> packet = Create<Packet> (data, data_size);
+  // m_txTrace (packet);
+  m_socket_send->Send(packet);
+  free(reply);
 }
 
 // Handles everything that's broadcast
@@ -501,12 +653,13 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
   Address from;
   while ((packet = socket->RecvFrom (from)))
     {
+      Ipv4Address sender = InetSocketAddress::ConvertFrom(from).GetIpv4();
       // NS_LOG_INFO("Received something");
       if (InetSocketAddress::IsMatchingType (from))
         {
-          NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds () << "s client " << address << " received " << packet->GetSize () << " bytes from " <<
-                       InetSocketAddress::ConvertFrom (from).GetIpv4 () << " port " <<
-                       InetSocketAddress::ConvertFrom (from).GetPort ());
+          // NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds () << "s client " << address << " received " << packet->GetSize () << " bytes from " <<
+          //              sender << " port " <<
+          //              InetSocketAddress::ConvertFrom (from).GetPort ());
         }
       size_t size_of_header_preview = MIN(packet->GetSize(),2*sizeof(uint8_t));
       uint8_t packet_content[size_of_header_preview];
@@ -514,103 +667,97 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
       // NS_LOG_INFO("Packet size " << packet->GetSize());
       // char s[1];
       // sprintf(s,"%d", packet_content[0]);
-      NS_LOG_INFO("Packet content " << ((uint32_t) packet_content[0]));
+      // NS_LOG_INFO("Packet content " << ((uint32_t) packet_content[0]));
       if (packet_content[0] == 0) {
-        NS_LOG_INFO("Packet is an advertisement");
-        addNodeToSeenList(InetSocketAddress::ConvertFrom (from).GetIpv4 ());
+        cancel_all_events();
+        NS_LOG_INFO("Packet is an advertisement at time " << Simulator::Now ().GetSeconds () << "s client " <<
+          address << " received " << packet->GetSize () << " bytes from " <<
+          sender << " port " << InetSocketAddress::ConvertFrom (from).GetPort ());
+        addNodeToSeenList(sender);
         uint8_t num_of_files = packet_content[1];
         packet->RemoveAtStart(sizeof(uint8_t)*2);
         // Maybe not safe to put huge amounts of data on the stack...
         uint8_t raw_files[packet->GetSize ()];
         packet->CopyData(raw_files, packet->GetSize ());
-        DecodeFilesForAdv(raw_files, num_of_files, InetSocketAddress::ConvertFrom (from).GetIpv4 ());
-        request_header req_h = {.packet_type = 1, .receiver_address = InetSocketAddress::ConvertFrom(from).GetIpv4().Get(), .file_id = 0, .chunk_id = 0};
-        packet = Create<Packet> ((uint8_t*) &req_h, sizeof(request_header));
-        m_txTrace (packet);
-        // socket->SendTo(packet, 0, from);
-        m_socket_send->Send(packet);
+        DecodeFilesForAdv(raw_files, num_of_files, sender);
+        FileSMSChunks file_to_request = getFileToRequest(sender);
+        if (file_to_request.is_full()) {
+          NS_LOG_INFO("No more files to request for node " << address);
+          // Maybe here we shouldn't advertise again and just shut up. Then the simulation would end automatically
+          m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
+          return;
+        }
+        m_requestEvent = Simulator::Schedule (Seconds(get_time_request()), &SmsEchoClient::request_packet, this, sender, file_to_request);
+        m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
+        // TODO schedule next advertisement
+
       } else if (packet_content[0] == 1) {
-        NS_LOG_INFO("Packet is a request");
-        FileSMSChunks file_to_request = getFileToRequest();
-        // NS_LOG_INFO();
+        cancel_all_events();
         request_header request;
         uint8_t raw_packet[packet->GetSize ()];
         packet->CopyData(raw_packet, packet->GetSize ());
         memcpy(&request, raw_packet, sizeof(request_header));
         Ipv4Address receiver_address = Ipv4Address(request.receiver_address);
-        NS_LOG_INFO("Receiver address: " << receiver_address);
+        // NS_LOG_INFO("Receiver address: " << receiver_address);
         if (!receiver_address.IsEqual(address)) {
-          NS_LOG_INFO("My address " << address << ", this packet isn't for me");
+          // This packet isn't for us
+          // TODO Schedule advertisement
+          // NS_LOG_INFO("My address " << address << ", this packet isn't for me");
+          m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
           return;
         }
-        // typedef struct {
-        //   uint8_t packet_type;
-        //   uint32_t original_requester;
-        //   uint32_t file_id;
-        //   uint32_t chunk_id;
-        // } reply_header;
-        reply_header header;
-        header.packet_type = 2;
-        header.original_requester = InetSocketAddress::ConvertFrom(from).GetIpv4().Get();
-        // Retrieve chunk
-        // TODO
-        size_t chunk_size;
-        if (true) {
-          chunk_size = CHUNK_SIZE;
+        NS_LOG_INFO("Packet is a request, requesting " << request.file_id << ", chunk " << request.chunk_id <<
+          " at time " << Simulator::Now ().GetSeconds () << "s client " <<
+          address << " received " << packet->GetSize () << " bytes from " <<
+          sender << " port " << InetSocketAddress::ConvertFrom (from).GetPort ());
+        std::pair<FileSMSChunks,int32_t> file_by_id_and_valid = getFileById(request.file_id);
+        FileSMSChunks file_requested = file_by_id_and_valid.first;
+        if (file_by_id_and_valid.second == -1) {
+          NS_LOG_WARN("File isn't valid, exiting now!");
+          abort();
         }
-        // Send requested chunk
-        size_t data_size = sizeof(reply_header) + chunk_size;
-        uint8_t data[data_size];
-        memcpy(data, &header, sizeof(reply_header));
-        packet = Create<Packet> (data, data_size);
-        m_txTrace (packet);
-        m_socket_send->Send(packet);
+        uint16_t chunk_size = file_requested.get_size_of_chunk(request.chunk_id);
+        reply_header* reply = (reply_header*) malloc(sizeof(reply_header));
+        // reply = &(reply_header) {.packet_type = 2, .original_requester = sender.Get(),
+        //   .file_id = file_requested.getFileId(), .file_size = (uint32_t) file_requested.getFileSize(), .chunk_id = request.chunk_id};
+        reply->packet_type = 2;
+        reply->original_requester = sender.Get();
+        reply->file_id = file_requested.getFileId();
+        reply->file_size = (uint32_t) file_requested.getFileSize();
+        reply->chunk_id = request.chunk_id;
+        m_replyEvent = Simulator::Schedule (Seconds(0), &SmsEchoClient::reply, this, reply, chunk_size);
+        m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
+
       } else if (packet_content[0] == 2) {
-        NS_LOG_INFO("Packet is a reply");
+        cancel_all_events();
+        NS_LOG_INFO("Packet is a reply at time " << Simulator::Now ().GetSeconds () << "s client " <<
+          address << " received " << packet->GetSize () << " bytes from " <<
+          sender << " port " << InetSocketAddress::ConvertFrom (from).GetPort ());
+        reply_header reply;
+        uint8_t raw_packet[packet->GetSize ()];
+        packet->CopyData(raw_packet, packet->GetSize ());
+        memcpy(&reply, raw_packet, sizeof(reply_header));
+        add_new_chunk(reply.file_id, reply.file_size, reply.chunk_id, sender);
+        Ipv4Address original_requester = Ipv4Address(reply.original_requester);
+        if (original_requester == address) {
+          // We are allowed to request again :)
+          FileSMSChunks file_to_request = getFileToRequest(sender);
+          if (file_to_request.is_full()) {
+            NS_LOG_INFO("No more files to request for node " << address);
+            m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
+            return;
+          }
+          // If we are the original_requester we request again immediately
+          m_requestEvent = Simulator::Schedule (Seconds(0.), &SmsEchoClient::request_packet, this, sender, file_to_request);
+        }
+        m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
       } else {
-        NS_LOG_INFO("Got some packet type :o");
+        NS_LOG_INFO("Got some weird packet type :o at time " << Simulator::Now ().GetSeconds () << "s client " <<
+          address << " received " << packet->GetSize () << " bytes from " <<
+          sender << " port " << InetSocketAddress::ConvertFrom (from).GetPort ());
+        abort();
       }
     }
 }
-
-// Handles everything that's unicast
-// void
-// SmsEchoClient::HandleRequest (Ptr<Socket> socket) {
-//   NS_LOG_FUNCTION(this << socket);
-//   Ptr<Packet> packet;
-//   Address from;
-//   while (packet = socket->RecvFrom(from)) {
-//       if (InetSocketAddress::IsMatchingType (from)) {
-//           NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds () << "s client " << address << " received " << packet->GetSize () << " bytes from " <<
-//                        InetSocketAddress::ConvertFrom (from).GetIpv4 () << " port " <<
-//                        InetSocketAddress::ConvertFrom (from).GetPort ());
-//       }
-//       size_t req_size = sizeof(SmsEchoClient::request_header);
-//       uint8_t req_buffer[req_size];
-//       SmsEchoClient::request_header request;
-//       packet->CopyData(req_buffer, req_size);
-//       memcpy(&request, req_buffer, req_size);
-//       if (request.packet_type == 1) {
-//         SmsEchoClient::reply_header header;
-//         header.packet_type = 2;
-//         header.original_requester = InetSocketAddress::ConvertFrom(from).GetIpv4().Get();
-//         // Retrieve chunk
-//         // TODO
-//         size_t chunk_size;
-//         if (true) {
-//           chunk_size = CHUNK_SIZE;
-//         }
-//         // Send requested chunk
-//         NS_LOG_WARN("Ah, sizeof(struct) gives you a wrong size because of alignment of the struct in memory!");
-//         size_t data_size = sizeof(SmsEchoClient::reply_header) + chunk_size;
-//         uint8_t* data = new uint8_t[data_size];
-//         memcpy(data, &header, sizeof(SmsEchoClient::reply_header));
-//         packet = Create<Packet> (data, data_size);
-//         m_txTrace (packet);
-//         m_socket_send->Send(packet);
-//         delete data;
-//       }
-//   }
-// }
 
 } // Namespace ns3

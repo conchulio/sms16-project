@@ -37,14 +37,17 @@ class FileSMSChunks : public FileSMS {
 public:
   FileSMSChunks(unsigned int id, size_t size, bool i_have_full_file);
 
-  bool* chunks;
+  std::vector<bool> chunks;
   uint16_t size_of_last_chunk;
   uint32_t file_size_in_chunks;
   uint32_t num_of_received_chunks;
   std::vector<Ipv4Address> nodes_who_have_file;
 
+  uint32_t get_first_missing_chunk();
   uint32_t get_num_of_missing_chunks ();
+  uint16_t get_size_of_chunk(uint32_t chunk_id);
   void add_node_to_seen_list(Ipv4Address node);
+  bool seen_in_node(Ipv4Address node);
   double get_popularity(uint32_t total_number_of_nodes);
   bool is_full();
 };
@@ -64,11 +67,18 @@ public:
 
   virtual ~SmsEchoClient ();
 
+  std::vector<FileSMSChunks> files;
+
+  void cancel_all_events();
+  double get_time_advertisement(bool start);
+  double get_time_request();
+  std::pair<FileSMSChunks,int32_t> getFileById(uint32_t id);
+  bool add_new_chunk(uint32_t file_id, uint32_t file_size, uint32_t chunk_id, Ipv4Address sender);
   void SetFiles (std::vector<FileSMS> filesToSet);
   void SetIPAdress (Ipv4Address address);
   uint32_t GetNumOfFullFiles();
   void addNodeToSeenList(Ipv4Address sender);
-  FileSMSChunks getFileToRequest();
+  FileSMSChunks getFileToRequest(Ipv4Address node_which_we_ask);
 
   uint8_t* EncodeFilesForAdv();
   std::vector<FileSMSChunks> DecodeFilesForAdv(uint8_t* raw_array, uint8_t num_advertised_files, Ipv4Address sender);
@@ -78,21 +88,22 @@ public:
   // We would have to enable C++2011
   // enum packet_type : uint8_t {adv, req, resp};
 
-  typedef struct {
+  typedef struct adv_header {
     uint8_t packet_type;
   } adv_header;
 
-  typedef struct {
+  typedef struct request_header {
     uint8_t packet_type;
     uint32_t receiver_address;
     uint32_t file_id;
     uint32_t chunk_id;
   } request_header;
 
-  typedef struct {
+  typedef struct reply_header {
     uint8_t packet_type;
     uint32_t original_requester;
     uint32_t file_id;
+    uint32_t file_size;
     uint32_t chunk_id;
   } reply_header;
 
@@ -179,13 +190,14 @@ protected:
   virtual void DoDispose (void);
 
 private:
-  std::vector<FileSMSChunks> files;
   Ipv4Address address;
 
   virtual void StartApplication (void);
   virtual void StopApplication (void);
 
   void ScheduleTransmit (Time dt);
+  void request_packet(Ipv4Address sender, FileSMSChunks file_to_request);
+  void reply(reply_header* request, uint16_t chunk_size);
   void Send (void);
 
   void HandleRead (Ptr<Socket> socket);
@@ -204,6 +216,8 @@ private:
   Address m_peerAddress;
   uint16_t m_peerPort;
   EventId m_sendEvent;
+  EventId m_requestEvent;
+  EventId m_replyEvent;
   /// Callbacks for tracing the packet Tx events
   TracedCallback<Ptr<const Packet> > m_txTrace;
 

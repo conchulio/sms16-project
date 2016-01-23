@@ -27,8 +27,10 @@ int main(int argc, char* argv[]) {
 
     std::vector< std::vector<FileSMS> > nodeFileList;
 
+    uint32_t total_num_of_files_in_the_beginning = 0;
     for (size_t i = 0; i < c.GetN(); i++) {
         std::vector<FileSMS> files = getInitialFileList();
+        total_num_of_files_in_the_beginning += files.size();
         nodeFileList.push_back(files);
         // std::vector<FileSMS>::const_iterator it;
         // for (it = files.begin(); it != files.end(); ++it) {
@@ -61,13 +63,28 @@ int main(int argc, char* argv[]) {
       smsApp->SetIPAdress(interfaces.Get(i).first->GetAddress(1,0).GetLocal());
       smsApp->SetFiles (nodeFileList[i]);
     }
+    // Why does it start at two seconds?
     apps.Start(Seconds(2.0));
-    apps.Stop(Seconds(10.0));
+    // apps.Stop(Seconds(10.0)); // That's the Default
+    apps.Stop(Seconds(100.0));
+    // It takes around 90 seconds to distribute all files
 
     Simulator::Stop(Seconds(getSimulationDuration()));
     Simulator::Run();
 
     // TODO: statistics for final evaluation
+    uint32_t total_number_of_full_files = 0;
+    for (uint32_t i = 0; i < c.GetN(); i++) {
+      SmsEchoClient* smsApp = static_cast<SmsEchoClient*> (&(*(c.Get(i)->GetApplication(0))));
+      std::vector<FileSMSChunks> files_in_the_end = smsApp->files;
+      for (uint32_t j = 0; j < files_in_the_end.size(); j++) {
+        if (files_in_the_end[j].is_full()) {
+          total_number_of_full_files++;
+        }
+      }
+    }
+
+    NS_LOG_INFO("Total number of full files in the beginnig: " << total_num_of_files_in_the_beginning << ", full files in the end: " << total_number_of_full_files);
 
     Simulator::Destroy();
     return 0;

@@ -6,6 +6,8 @@ FileSMS::FileSMS(unsigned int id, size_t size)
 {
 }
 
+FileSMS::~FileSMS() {}
+
 unsigned int FileSMS::getFileId() const {
   return mId;
 }

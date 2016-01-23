@@ -20,6 +20,7 @@ class FileSMS
 {
 public:
     FileSMS(unsigned int id, size_t size);
+    /*virtual*/ ~FileSMS();
     unsigned int getFileId() const;
     size_t getFileSize() const;
     bool operator==(const FileSMS &other) const;
