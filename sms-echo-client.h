@@ -221,6 +221,8 @@ private:
   /// Callbacks for tracing the packet Tx events
   TracedCallback<Ptr<const Packet> > m_txTrace;
 
+  uint32_t maximum_full_files_seen;
+
   // std::vector<FileSMSChunks> seen_files;
   std::vector<Ipv4Address> seen_nodes;
 };

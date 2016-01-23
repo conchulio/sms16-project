@@ -159,6 +159,7 @@ bool SmsEchoClient::add_new_chunk(uint32_t file_id, uint32_t file_size, uint32_t
   } else {
     return false;
   }
+  maximum_full_files_seen = MAX(maximum_full_files_seen,GetNumOfFullFiles());
   NS_LOG_INFO("Num of received chunks " << files[file_valid_pair.second].num_of_received_chunks);
   return true;
 }
@@ -171,13 +172,11 @@ std::pair<FileSMSChunks,int32_t> SmsEchoClient::getFileById(uint32_t id) {
       return std::pair<FileSMSChunks,uint32_t>(files[i],i);
     }
   }
-  // NS_LOG_WARN("Looking up file by id but there's no file with this id. Program will crash.");
-  // abort();
-  // This will never be returned
   return std::pair<FileSMSChunks,uint32_t>(FileSMSChunks(0,0,true),-1);
 }
 
 FileSMSChunks SmsEchoClient::getFileToRequest(Ipv4Address node_which_we_ask) {
+
   std::stringstream ss;
   ss << "Files with lowest chunks missing: ";
   uint32_t minimumChunksMissing = UINT_MAX;
@@ -216,6 +215,7 @@ uint8_t* SmsEchoClient::EncodeFilesForAdv() {
   // NS_LOG_INFO("Warning: Only 16 bits for id and size in order that the packet doesn't overflow");
   //                                                times 2 because of id and size being transmitted
   uint32_t full_files = GetNumOfFullFiles();
+  maximum_full_files_seen = MAX(maximum_full_files_seen, full_files);
   NS_LOG_INFO("Total files " << files.size() << " full files " << full_files);
   uint16_t* array = (uint16_t*) malloc(full_files*2*sizeof(uint16_t));
   // uint16_t array[files.size()*2];
@@ -237,6 +237,7 @@ uint8_t* SmsEchoClient::EncodeFilesForAdv() {
 }
 
 std::vector<FileSMSChunks> SmsEchoClient::DecodeFilesForAdv(uint8_t* raw_array, uint8_t num_advertised_files, Ipv4Address sender) {
+  maximum_full_files_seen = MAX(maximum_full_files_seen, num_advertised_files);
   uint16_t* array = (uint16_t*) raw_array;
   std::vector<FileSMSChunks> received_files;
   for (size_t i = 0; i < num_advertised_files; i++) {
@@ -328,6 +329,7 @@ void SmsEchoClient::SetFiles (std::vector<FileSMS> filesToSet) {
       // " chunks: " << files[i].file_size_in_chunks <<
        "; ";
   }
+  maximum_full_files_seen = MAX(maximum_full_files_seen,filesToSet.size());
   // NS_LOG_INFO(ss.str());
 }
 
@@ -592,15 +594,18 @@ timer for advertisement: 50+50*(1/(num_of_full_files_i_own+1))+(random number fr
 
 double SmsEchoClient::get_time_advertisement(bool start) {
   // All values in milliseconds
-  double offset = ADVERTISEMENT_OFFSET;
+  // double offset = ADVERTISEMENT_OFFSET;
+  // NS_LOG_INFO("maximum_full_files_seen: " << maximum_full_files_seen);
+  double offset = maximum_full_files_seen + 10.0;
   if (start) {
     offset = 0;
   }
   double num_of_full_files_i_own = (double) GetNumOfFullFiles();
   // from -5.0 to 5.0
-  double random_component = ((double) std::rand() / RAND_MAX)*10;
+  double multiplier = 50;
+  double random_component = ((double) std::rand() / RAND_MAX)*15;
   double to_seconds = 0.001;
-  return to_seconds*(offset+num_of_full_files_i_own+random_component);
+  return to_seconds*(offset+multiplier*(1.0/num_of_full_files_i_own)+random_component);
 }
 
 double SmsEchoClient::get_time_request() {
@@ -608,8 +613,9 @@ double SmsEchoClient::get_time_request() {
   double to_seconds = 0.001;
   double random_component = ((double) std::rand() / RAND_MAX)*10;
   double reply = num_of_full_files_i_own+1.0+random_component;
-  if (reply > ADVERTISEMENT_OFFSET) {
-    NS_LOG_WARN("This reply is scheduled with lower priority than an advertisement :o");
+  double time_for_advertisement = get_time_advertisement(false);
+  if (to_seconds*reply > time_for_advertisement) {
+    NS_LOG_WARN("This reply is scheduled with lower priority than an advertisement :o, reply " << to_seconds*reply << " time for advertisement " << time_for_advertisement);
   }
   // NS_LOG_INFO("Number of files I own: " << reply);
   return to_seconds*reply;
@@ -682,9 +688,9 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
         DecodeFilesForAdv(raw_files, num_of_files, sender);
         FileSMSChunks file_to_request = getFileToRequest(sender);
         if (file_to_request.is_full()) {
-          NS_LOG_INFO("No more files to request for node " << address);
+          NS_LOG_WARN("No more files to request for node " << address << " at time " << Simulator::Now().GetSeconds());
           // Maybe here we shouldn't advertise again and just shut up. Then the simulation would end automatically
-          m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
+          // m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
           return;
         }
         m_requestEvent = Simulator::Schedule (Seconds(get_time_request()), &SmsEchoClient::request_packet, this, sender, file_to_request);
@@ -700,8 +706,6 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
         Ipv4Address receiver_address = Ipv4Address(request.receiver_address);
         // NS_LOG_INFO("Receiver address: " << receiver_address);
         if (!receiver_address.IsEqual(address)) {
-          // This packet isn't for us
-          // TODO Schedule advertisement
           // NS_LOG_INFO("My address " << address << ", this packet isn't for me");
           m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
           return;
@@ -743,7 +747,7 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
           // We are allowed to request again :)
           FileSMSChunks file_to_request = getFileToRequest(sender);
           if (file_to_request.is_full()) {
-            NS_LOG_INFO("No more files to request for node " << address);
+            NS_LOG_WARN("No more files to request for node " << address << " at time " << Simulator::Now().GetSeconds());
             m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
             return;
           }
@@ -752,7 +756,7 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
         }
         m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
       } else {
-        NS_LOG_INFO("Got some weird packet type :o at time " << Simulator::Now ().GetSeconds () << "s client " <<
+        NS_LOG_WARN("Got some weird packet type :o at time " << Simulator::Now ().GetSeconds () << "s client " <<
           address << " received " << packet->GetSize () << " bytes from " <<
           sender << " port " << InetSocketAddress::ConvertFrom (from).GetPort ());
         abort();

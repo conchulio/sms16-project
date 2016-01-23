@@ -1,13 +1,13 @@
 #include "sms-helpers.h"
 #include "sms-echo-helper.h"
 #include <iostream>
+#include <set>
 
 NS_LOG_COMPONENT_DEFINE("SMSProject");
 
 int main(int argc, char* argv[]) {
     LogComponentEnable("SMSProject", LOG_LEVEL_INFO);
-    LogComponentEnable("SmsEchoClientApplication", LOG_LEVEL_INFO);
-    LogComponentEnable("SmsEchoServerApplication", LOG_LEVEL_INFO);
+    LogComponentEnable("SmsEchoClientApplication", LOG_LEVEL_WARN);
     NS_LOG_UNCOND("sms16");
 
     NodeContainer c;
@@ -26,11 +26,15 @@ int main(int argc, char* argv[]) {
     Ipv4InterfaceContainer interfaces = ipv4.Assign(netDevices);
 
     std::vector< std::vector<FileSMS> > nodeFileList;
+    std::set< int > file_set;
 
     uint32_t total_num_of_files_in_the_beginning = 0;
     for (size_t i = 0; i < c.GetN(); i++) {
         std::vector<FileSMS> files = getInitialFileList();
         total_num_of_files_in_the_beginning += files.size();
+        for (size_t j = 0; j < files.size(); j++) {
+          file_set.insert(files[j].getFileId());
+        }
         nodeFileList.push_back(files);
         // std::vector<FileSMS>::const_iterator it;
         // for (it = files.begin(); it != files.end(); ++it) {
@@ -66,13 +70,14 @@ int main(int argc, char* argv[]) {
     // Why does it start at two seconds?
     apps.Start(Seconds(2.0));
     // apps.Stop(Seconds(10.0)); // That's the Default
-    apps.Stop(Seconds(100.0));
+    apps.Stop(Seconds(getSimulationDuration()));
     // It takes around 90 seconds to distribute all files
 
     Simulator::Stop(Seconds(getSimulationDuration()));
     Simulator::Run();
 
     // TODO: statistics for final evaluation
+    std::set< int > file_set_in_the_end;
     uint32_t total_number_of_full_files = 0;
     for (uint32_t i = 0; i < c.GetN(); i++) {
       SmsEchoClient* smsApp = static_cast<SmsEchoClient*> (&(*(c.Get(i)->GetApplication(0))));
@@ -80,11 +85,13 @@ int main(int argc, char* argv[]) {
       for (uint32_t j = 0; j < files_in_the_end.size(); j++) {
         if (files_in_the_end[j].is_full()) {
           total_number_of_full_files++;
+          file_set_in_the_end.insert(files_in_the_end[j].getFileId());
         }
       }
     }
 
-    NS_LOG_INFO("Total number of full files in the beginnig: " << total_num_of_files_in_the_beginning << ", full files in the end: " << total_number_of_full_files);
+    NS_LOG_UNCOND("Stopped at time " << Simulator::Now ().GetSeconds () << " Unique files in the beginning: " << file_set.size() << " Total number of full files in the beginnig: " <<
+    total_num_of_files_in_the_beginning << ", full files in the end: " << total_number_of_full_files << " unique files in the end " << file_set_in_the_end.size());
 
     Simulator::Destroy();
     return 0;

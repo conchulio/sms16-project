@@ -1,4 +1,4 @@
 #!/bin/bash
 
 cd ../..
-./waf --run sms16-professional
+NS_GLOBAL_VALUE="RngRun=3" ./waf --run sms16-professional
