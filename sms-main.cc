@@ -29,7 +29,8 @@ int main(int argc, char* argv[]) {
     std::vector< std::vector<FileSMS> > nodeFileList;
     std::set< int > file_set;
 
-    std::ofstream results("results.txt");
+    std::ofstream results;
+    results.open("results.txt");
     results << "Files per node in the beginning: " << std::endl;
     uint32_t total_num_of_files_in_the_beginning = 0;
     for (size_t i = 0; i < c.GetN(); i++) {
@@ -75,10 +76,12 @@ int main(int argc, char* argv[]) {
     // Why does it start at two seconds?
     apps.Start(Seconds(2.0));
     // apps.Stop(Seconds(10.0)); // That's the Default
-    apps.Stop(Seconds(getSimulationDuration()));
+    apps.Stop(Seconds(100));
+    // apps.Stop(Seconds(getSimulationDuration()));
     // It takes around 90 seconds to distribute all files
 
-    Simulator::Stop(Seconds(getSimulationDuration()));
+    Simulator::Stop(Seconds(100));
+    // Simulator::Stop(Seconds(getSimulationDuration()));
     Simulator::Run();
 
     // TODO: statistics for final evaluation
@@ -100,6 +103,7 @@ int main(int argc, char* argv[]) {
 
     results << "Stopped at time " << Simulator::Now ().GetSeconds () << " Unique files in the beginning: " << file_set.size() << " Total number of full files in the beginnig: " <<
     total_num_of_files_in_the_beginning << ", full files in the end: " << total_number_of_full_files << " unique files in the end " << file_set_in_the_end.size();
+    results.close();
     NS_LOG_UNCOND("Stopped at time " << Simulator::Now ().GetSeconds () << " Unique files in the beginning: " << file_set.size() << " Total number of full files in the beginnig: " <<
     total_num_of_files_in_the_beginning << ", full files in the end: " << total_number_of_full_files << " unique files in the end " << file_set_in_the_end.size());
 
