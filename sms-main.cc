@@ -2,6 +2,7 @@
 #include "sms-echo-helper.h"
 #include <iostream>
 #include <set>
+#include <fstream>
 
 NS_LOG_COMPONENT_DEFINE("SMSProject");
 
@@ -28,11 +29,15 @@ int main(int argc, char* argv[]) {
     std::vector< std::vector<FileSMS> > nodeFileList;
     std::set< int > file_set;
 
+    std::ofstream results("results.txt");
+    results << "Files per node in the beginning: " << std::endl;
     uint32_t total_num_of_files_in_the_beginning = 0;
     for (size_t i = 0; i < c.GetN(); i++) {
+        results << "Node " << i << std::endl;
         std::vector<FileSMS> files = getInitialFileList();
         total_num_of_files_in_the_beginning += files.size();
         for (size_t j = 0; j < files.size(); j++) {
+          results << "File " << files[j].getFileId() << std::endl;
           file_set.insert(files[j].getFileId());
         }
         nodeFileList.push_back(files);
@@ -77,13 +82,16 @@ int main(int argc, char* argv[]) {
     Simulator::Run();
 
     // TODO: statistics for final evaluation
+    results << "Files per node in the end: " << std::endl;
     std::set< int > file_set_in_the_end;
     uint32_t total_number_of_full_files = 0;
     for (uint32_t i = 0; i < c.GetN(); i++) {
+      results << "Node " << i << std::endl;
       SmsEchoClient* smsApp = static_cast<SmsEchoClient*> (&(*(c.Get(i)->GetApplication(0))));
       std::vector<FileSMSChunks> files_in_the_end = smsApp->files;
       for (uint32_t j = 0; j < files_in_the_end.size(); j++) {
         if (files_in_the_end[j].is_full()) {
+          results << "File " << files_in_the_end[j].getFileId() << std::endl;
           total_number_of_full_files++;
           file_set_in_the_end.insert(files_in_the_end[j].getFileId());
         }
