@@ -1,0 +1,22 @@
+Building
+========
+
+Under waf, just run ./waf
+For a standalone build, use the 'build.sh' script.
+
+
+Running
+=======
+
+Under waf, use the 'run.sh' script
+Standalone, just run the 'sms-main' executable.
+
+
+Output
+======
+
+Without waf, no logs are produced.
+The final statistics are written to the 'results.txt' file.
+This file is located either in the ns3 root dir or in the dir where the
+standalone program was executed. In the same location, pcap traces are
+also created.
