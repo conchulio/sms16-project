@@ -98,6 +98,8 @@ int main(int argc, char* argv[]) {
       }
     }
 
+    results << "Stopped at time " << Simulator::Now ().GetSeconds () << " Unique files in the beginning: " << file_set.size() << " Total number of full files in the beginnig: " <<
+    total_num_of_files_in_the_beginning << ", full files in the end: " << total_number_of_full_files << " unique files in the end " << file_set_in_the_end.size();
     NS_LOG_UNCOND("Stopped at time " << Simulator::Now ().GetSeconds () << " Unique files in the beginning: " << file_set.size() << " Total number of full files in the beginnig: " <<
     total_num_of_files_in_the_beginning << ", full files in the end: " << total_number_of_full_files << " unique files in the end " << file_set_in_the_end.size());
 
