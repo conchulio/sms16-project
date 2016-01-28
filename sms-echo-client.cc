@@ -690,7 +690,7 @@ SmsEchoClient::HandleRead (Ptr<Socket> socket)
         if (file_to_request.is_full()) {
           NS_LOG_WARN("No more files to request for node " << address << " at time " << Simulator::Now().GetSeconds());
           // Maybe here we shouldn't advertise again and just shut up. Then the simulation would end automatically
-          // m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
+          m_sendEvent = Simulator::Schedule (Seconds (get_time_advertisement(false)), &SmsEchoClient::Send, this);
           return;
         }
         m_requestEvent = Simulator::Schedule (Seconds(get_time_request()), &SmsEchoClient::request_packet, this, sender, file_to_request);
