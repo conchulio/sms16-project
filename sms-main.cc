@@ -7,7 +7,7 @@ NS_LOG_COMPONENT_DEFINE("SMSProject");
 
 int main(int argc, char* argv[]) {
     LogComponentEnable("SMSProject", LOG_LEVEL_INFO);
-    LogComponentEnable("SmsEchoClientApplication", LOG_LEVEL_INFO);
+    LogComponentEnable("SmsEchoClientApplication", LOG_LEVEL_WARN);
     NS_LOG_UNCOND("sms16");
 
     NodeContainer c;
