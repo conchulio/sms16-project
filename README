@@ -4,6 +4,11 @@ Building
 Under waf, just run ./waf
 For a standalone build, use the 'build.sh' script.
 
+IMPORTANT: If you wish to change the implementation of the functions that
+were in the 'sms-helpers.h' file, please note that they have been split into
+the 'sms-helpers.cc' file, to allow the header to be included in multiple
+files.
+
 
 Running
 =======
