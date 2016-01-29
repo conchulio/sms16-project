@@ -19,7 +19,6 @@
  */
 #include "sms-echo-helper.h"
 #include "sms-echo-client.h"
-#include "sms-echo-server.h"
 #include "ns3/uinteger.h"
 #include "ns3/names.h"
 
